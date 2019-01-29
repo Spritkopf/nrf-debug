@@ -91,6 +91,8 @@ int8_t send_data(uint64_t addr, uint8_t *data, uint8_t len, uint8_t* resp){
 /* command parameters in HEX format
 * example: send bytes [1, 10, 255] to address 0xDEADB
     w DEADB 1 a ff
+
+    maximum of 32 bytes allowed
 */
 void cmd_send_message(SerialCommands* sender){
     char *arg; 
@@ -99,6 +101,7 @@ void cmd_send_message(SerialCommands* sender){
     uint8_t payload_count = 0;
     uint8_t response[32];
     int8_t response_len= 0;
+    
     arg = sender->Next();
     
     if (arg != NULL)
@@ -120,21 +123,10 @@ void cmd_send_message(SerialCommands* sender){
         arg = sender->Next(); 
     } 
 
-    if(debug)
+    if((payload_count == 0) || (payload_count > 32))
     {
-      // debug output:
-      sender->GetSerial()->print("Sending to pipeline address 0x");
-      sender->GetSerial()->print((uint32_t)(pipeline>>32)&0xFFFFFFFF, HEX);
-      sender->GetSerial()->println((uint32_t)(pipeline&0xFFFFFFFF), HEX);
-      sender->GetSerial()->print("[");
-      for(int i=0; i<payload_count; i++)
-      {
-        if(i>0) sender->GetSerial()->print(",");
-        sender->GetSerial()->print(payload[i], HEX);
-        
-      }
-      sender->GetSerial()->println("]");
-      // debug output END
+      sender->GetSerial()->println(0x84, HEX); // illegal payload size
+      return;
     }
     // send data
     response_len = send_data(pipeline, payload, payload_count, response);
