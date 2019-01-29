@@ -7,6 +7,7 @@
 
 RF24 radio(9,10);   /* CE pin 9, CSN Pin 10 */
 
+uint8_t debug = 0;
 
 /* code snipped for hex character to integer conversion functions (hexCharToBin(), hexStrToULL()) borrowed from:
 http://forum.arduino.cc/index.php?topic=233813.0   ; posted by user westfw.
@@ -88,8 +89,8 @@ int8_t send_data(uint64_t addr, uint8_t *data, uint8_t len, uint8_t* resp){
 }
 
 /* command parameters in HEX format
-* example: send bytes [1, 10, 255] to address 0xDEADBEEF
-    w DEADBEEF 1 a ff
+* example: send bytes [1, 10, 255] to address 0xDEADB
+    w DEADB 1 a ff
 */
 void cmd_send_message(SerialCommands* sender){
     char *arg; 
@@ -106,7 +107,8 @@ void cmd_send_message(SerialCommands* sender){
     }
     else
     {
-        sender->GetSerial()->println("0x80: No arguments"); 
+        sender->GetSerial()->println(0x83, HEX); 
+        return;
     }
 
     arg = sender->Next(); 
@@ -118,52 +120,43 @@ void cmd_send_message(SerialCommands* sender){
         arg = sender->Next(); 
     } 
 
-    // debug output:
-    sender->GetSerial()->print("Sending to pipeline address 0x");
-    sender->GetSerial()->print((uint32_t)(pipeline>>32)&0xFFFFFFFF, HEX);
-    sender->GetSerial()->println((uint32_t)(pipeline&0xFFFFFFFF), HEX);
-    sender->GetSerial()->print("[");
-    for(int i=0; i<payload_count; i++)
+    if(debug)
     {
-      if(i>0) sender->GetSerial()->print(",");
-      sender->GetSerial()->print(payload[i], HEX);
-      
+      // debug output:
+      sender->GetSerial()->print("Sending to pipeline address 0x");
+      sender->GetSerial()->print((uint32_t)(pipeline>>32)&0xFFFFFFFF, HEX);
+      sender->GetSerial()->println((uint32_t)(pipeline&0xFFFFFFFF), HEX);
+      sender->GetSerial()->print("[");
+      for(int i=0; i<payload_count; i++)
+      {
+        if(i>0) sender->GetSerial()->print(",");
+        sender->GetSerial()->print(payload[i], HEX);
+        
+      }
+      sender->GetSerial()->println("]");
+      // debug output END
     }
-    sender->GetSerial()->println("]");
-    // debug output END
-
-
     // send data
     response_len = send_data(pipeline, payload, payload_count, response);
 
-    // debug output:
-    sender->GetSerial()->print("send data returned: ");
-    sender->GetSerial()->print(response_len, HEX);
-    if(response_len == -1)
-    {
-      sender->GetSerial()->println(" (nrf24 comm error)");
-    }
-    else if(response_len == -2)
-    {
-      sender->GetSerial()->println(" (response timeout)");
-    }
-    else
-    {
-      sender->GetSerial()->println("");
-    }
-    // debug output END
+    // print error-code
     
-    if(response_len >=0)
+    if(response_len == -1) sender->GetSerial()->println(0x81, HEX);   // timeout waiting for response
+    if(response_len == -2) sender->GetSerial()->println(0x82, HEX);   // error writing to device
+    if(response_len >= 0) sender->GetSerial()->print(0x0, HEX);     // OK
+    
+    
+    // print payload
+    if(response_len > 0)
     {
-        sender->GetSerial()->print("[");
+        sender->GetSerial()->print(" ");
         for(int i=0; i<response_len; i++)
         {
-            // debug output:
-            if(i>0) sender->GetSerial()->print(",");
-            sender->GetSerial()->print(response[i], HEX);
-            // debug output END
+            sender->GetSerial()->print(response[i], HEX);            
+            
+            if(i<response_len) sender->GetSerial()->print(" ");
         }
-        sender->GetSerial()->println("]");
+        sender->GetSerial()->println("");
     }
 }
 
@@ -178,6 +171,34 @@ void cmd_listen(SerialCommands* sender) {
     arg = sender->Next();
 
     radio.startListening();
+
+    /* not yet implemented */
+}
+
+/*!
+* \brief Ser debug mode
+* \param debugmode - 1: enable / 0 disable 
+* 
+* \details sets debug mode, which enables additional output
+*/
+void cmd_debug(SerialCommands* sender) {
+    char *arg;
+    arg = sender->Next();
+    uint8_t debugmode = 0;
+
+    if (arg != NULL)
+    {
+        debugmode = (uint8_t)hexStrToULL(arg);
+
+        if(debugmode > 0)
+        {
+          debug = 1;
+        }
+        else
+        {
+          debug = 0;
+        }
+    }
 }
 
 
@@ -203,6 +224,7 @@ SerialCommands serial_commands_(&Serial, serial_command_buffer_, sizeof(serial_c
 SerialCommand cmd_send_message_("w",  cmd_send_message);     
 SerialCommand cmd_listen_("l",  cmd_listen);     
 SerialCommand cmd_test_("t",  cmd_test);     
+SerialCommand cmd_debug_("d",  cmd_debug);
 
 void setup() {
   
@@ -212,6 +234,7 @@ void setup() {
   serial_commands_.AddCommand(&cmd_send_message_);
   serial_commands_.AddCommand(&cmd_listen_);
   serial_commands_.AddCommand(&cmd_test_);
+  serial_commands_.AddCommand(&cmd_debug_);
     
   serial_commands_.SetDefaultHandler(cmd_unrecognized);  // Handler for command that isn't matched  (says "What?") 
   Serial.println("ready");
